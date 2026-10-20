@@ -42,7 +42,10 @@ class BinsCalendar(FrankstonBinsEntity, CalendarEntity):
 
     @property
     def event(self) -> CalendarEvent | None:
-        return _event(self.bins_data.next_collection)
+        # Unlike the sensors, the calendar ignores the rollover time: today's
+        # all-day event stays current until midnight.
+        today = dt_util.now().date()
+        return _event(self.bins_data.zone.next_collection(today))
 
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime

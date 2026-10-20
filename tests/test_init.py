@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
@@ -193,3 +193,135 @@ async def test_unload(hass: HomeAssistant, mock_services, setup_entry):
     entry = await setup_entry()
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_calendar_keeps_todays_event_after_rollover(
+    hass: HomeAssistant, mock_services, setup_entry, freezer: FrozenDateTimeFactory
+):
+    await setup_entry()
+    freezer.move_to(dt_util.parse_datetime("2026-10-21T15:00:00+11:00"))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    # Sensors have moved on to next week...
+    assert hass.states.get(f"sensor.{PREFIX}_next_collection").state == "2026-10-28"
+    # ...but today's all-day event is still in progress.
+    calendar = hass.states.get(f"calendar.{PREFIX}_collections")
+    assert calendar.state == STATE_ON
+    assert calendar.attributes["start_time"] == "2026-10-21 00:00:00"
+
+
+async def test_upcoming_attributes(hass: HomeAssistant, mock_services, setup_entry):
+    await setup_entry()
+    state = hass.states.get(f"sensor.{PREFIX}_next_collection")
+    # The card shows up to 8 collections after the next one.
+    assert len(state.attributes["upcoming"]) == 9
+    # General waste is weekly: every Wednesday in the inclusive 56-day window.
+    general = hass.states.get(f"sensor.{PREFIX}_general_waste").attributes["upcoming"]
+    assert general[0] == "2026-10-21"
+    assert general[-1] == "2026-12-16"
+    assert len(general) == 9
+
+
+async def test_zone_with_no_collections_in_window(hass: HomeAssistant, aioclient_mock, setup_entry):
+    """A zone whose schedules start beyond the 56-day window mustn't crash."""
+    future = {
+        "area": "Area 9",
+        "rub_start": "2027-06-02",
+        "rub_weeks": 1.0,
+        "rec_start": "2027-06-02",
+        "rec_weeks": 2.0,
+    }
+    aioclient_mock.get(ZONES_URL, status=503)
+    entry = await setup_entry(zone=future)
+    assert entry.state is ConfigEntryState.LOADED
+    general = hass.states.get(f"sensor.{PREFIX}_general_waste")
+    assert general.state == "2027-06-02"
+    assert general.attributes["upcoming"] == []
+
+
+async def test_failed_refresh_backs_off(
+    hass: HomeAssistant, aioclient_mock, setup_entry, freezer: FrozenDateTimeFactory
+):
+    aioclient_mock.get(ZONES_URL, status=503)
+    await setup_entry()
+    assert aioclient_mock.call_count == 1
+    for _ in range(4):  # Two hours of 30-minute updates
+        freezer.tick(timedelta(minutes=30))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    assert aioclient_mock.call_count == 1
+    freezer.tick(timedelta(hours=11))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert aioclient_mock.call_count == 2
+
+
+async def test_reloads_when_zone_bins_change(
+    hass: HomeAssistant, aioclient_mock, zones, setup_entry, example_zone, freezer
+):
+    aioclient_mock.get(ZONES_URL, json=zones)
+    entry = await setup_entry()
+    assert hass.states.get(f"binary_sensor.{PREFIX}_glass_going_out") is not None
+
+    # The council stops glass collection for this zone.
+    without_glass = {k: v for k, v in example_zone.items() if not k.startswith("gls_")}
+    for feature in zones["features"]:
+        if feature["properties"] == example_zone:
+            feature["properties"] = without_glass
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(ZONES_URL, json=zones)
+    # Crossing midnight recalculates (and reschedules) the update, so step twice.
+    for step in (timedelta(hours=12, minutes=1), timedelta(minutes=31)):
+        freezer.tick(step)
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    assert entry.data["zone"] == without_glass
+    assert entry.state is ConfigEntryState.LOADED
+    glass = hass.states.get(f"binary_sensor.{PREFIX}_glass_going_out")
+    assert glass is None or glass.state == "unavailable"
+
+
+async def test_card_url_uses_manifest_version(hass: HomeAssistant, mock_services, setup_entry):
+    from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
+
+    await setup_entry()
+    assert any(
+        url.endswith("/frankston-bins-card.js?v=1.0.0")
+        for url in hass.data[DATA_EXTRA_MODULE_URL].urls
+    )
+
+
+async def test_midnight_rollover_shows_today_all_day(
+    hass: HomeAssistant, mock_services, example_zone, freezer: FrozenDateTimeFactory
+):
+    await hass.config.async_set_time_zone("Australia/Melbourne")
+    freezer.move_to(dt_util.parse_datetime("2026-10-21T00:00:00+11:00"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_ADDRESS: EXAMPLE_ADDRESS["address"],
+            CONF_LATITUDE: EXAMPLE_ADDRESS["latitude"],
+            CONF_LONGITUDE: EXAMPLE_ADDRESS["longitude"],
+            "zone": example_zone,
+        },
+        options={"rollover_time": "00:00:00"},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for when in (
+        "2026-10-21T00:00:00+11:00",
+        "2026-10-21T15:00:00+11:00",
+        "2026-10-21T23:59:00+11:00",
+    ):
+        freezer.move_to(dt_util.parse_datetime(when))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+        assert hass.states.get(f"sensor.{PREFIX}_next_collection").state == "2026-10-21", when
+        assert hass.states.get(f"sensor.{PREFIX}_days_until_collection").state == "0", when
+
+    freezer.move_to(dt_util.parse_datetime("2026-10-22T00:00:00+11:00"))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(f"sensor.{PREFIX}_next_collection").state == "2026-10-28"

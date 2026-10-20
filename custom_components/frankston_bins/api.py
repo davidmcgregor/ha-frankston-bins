@@ -67,32 +67,45 @@ class FrankstonBinsApi:
 
     async def async_search_address(self, query: str) -> list[AddressMatch]:
         """Geocode an address, preferring the official Vicmap geocoder."""
+        vicmap_error: FrankstonBinsError | None = None
         try:
             matches = await self._search_vicmap(query)
         except FrankstonBinsError as err:
             _LOGGER.debug("Vicmap geocoder failed, trying geocode.earth: %s", err)
+            vicmap_error = err
             matches = []
-        if not matches:
-            matches = await self._search_geocode_earth(query)
-        return matches
+        if matches:
+            return matches
+        try:
+            return await self._search_geocode_earth(query)
+        except FrankstonBinsError as err:
+            if vicmap_error is not None:
+                raise
+            # Vicmap answered and found nothing; that's the real result.
+            _LOGGER.debug("geocode.earth fallback failed: %s", err)
+            return []
 
     async def _search_vicmap(self, query: str) -> list[AddressMatch]:
         data = await self._get_json(
             VICMAP_GEOCODER_URL,
             {"SingleLine": query, "f": "json", "outSR": "4326", "maxLocations": "10"},
         )
+        if not isinstance(data, dict):
+            raise FrankstonBinsError("Unexpected response from the Vicmap geocoder")
         matches = []
         for candidate in data.get("candidates") or []:
-            location = candidate.get("location") or {}
-            if candidate.get("score", 0) < MIN_VICMAP_SCORE or "x" not in location:
-                continue
-            matches.append(
-                AddressMatch(
-                    address=_title_case(candidate["address"]),
-                    latitude=float(location["y"]),
-                    longitude=float(location["x"]),
+            try:
+                if float(candidate.get("score") or 0) < MIN_VICMAP_SCORE:
+                    continue
+                matches.append(
+                    AddressMatch(
+                        address=_title_case(candidate["address"]),
+                        latitude=float(candidate["location"]["y"]),
+                        longitude=float(candidate["location"]["x"]),
+                    )
                 )
-            )
+            except (AttributeError, KeyError, TypeError, ValueError):
+                _LOGGER.debug("Skipping malformed Vicmap candidate: %s", candidate)
         return matches
 
     async def _search_geocode_earth(self, query: str) -> list[AddressMatch]:
@@ -106,17 +119,22 @@ class FrankstonBinsApi:
                 "size": "10",
             },
         )
+        if not isinstance(data, dict):
+            raise FrankstonBinsError("Unexpected response from geocode.earth")
         matches = []
         for feature in data.get("features") or []:
-            longitude, latitude = feature["geometry"]["coordinates"][:2]
-            properties = feature.get("properties") or {}
-            matches.append(
-                AddressMatch(
-                    address=properties.get("label") or properties.get("name") or query,
-                    latitude=float(latitude),
-                    longitude=float(longitude),
+            try:
+                longitude, latitude = feature["geometry"]["coordinates"][:2]
+                properties = feature.get("properties") or {}
+                matches.append(
+                    AddressMatch(
+                        address=properties.get("label") or properties.get("name") or query,
+                        latitude=float(latitude),
+                        longitude=float(longitude),
+                    )
                 )
-            )
+            except (AttributeError, KeyError, TypeError, ValueError):
+                _LOGGER.debug("Skipping malformed geocode.earth feature: %s", feature)
         return matches
 
 

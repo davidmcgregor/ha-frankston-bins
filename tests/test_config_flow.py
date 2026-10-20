@@ -6,6 +6,8 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.setup import async_setup_component
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.frankston_bins.const import (
@@ -18,6 +20,17 @@ from custom_components.frankston_bins.const import (
 )
 
 from .conftest import EXAMPLE_ADDRESS, vicmap_response
+
+
+@pytest.fixture(autouse=True)
+async def setup_dependencies(hass: HomeAssistant) -> None:
+    """Load the integration (and frontend/http) before starting flows.
+
+    Otherwise the first flow sets up the dependencies in the background, and on
+    some Home Assistant versions a delayed storage write can outlive the test.
+    """
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
 
 
 async def _start(hass: HomeAssistant):
@@ -179,3 +192,102 @@ async def test_options_flow(hass: HomeAssistant, mock_services, example_zone):
     await hass.async_block_till_done()
     assert entry.options == {CONF_ROLLOVER: "09:30:00"}
     assert entry.runtime_data.rollover.hour == 9
+
+
+async def test_malformed_vicmap_candidates_fall_back(hass: HomeAssistant, aioclient_mock, zones):
+    aioclient_mock.get(ZONES_URL, json=zones)
+    aioclient_mock.get(
+        VICMAP_GEOCODER_URL,
+        json={
+            "candidates": [
+                {"address": "NO SCORE", "score": None, "location": {"x": 1, "y": 2}},
+                {"score": 99, "location": {"x": 1, "y": 2}},  # no address
+                {"address": "NO LOCATION", "score": 99},
+            ]
+        },
+    )
+    aioclient_mock.get(
+        GEOCODE_EARTH_URL,
+        json={
+            "features": [
+                {"geometry": None, "properties": {"label": "broken"}},
+                {"properties": {"label": "also broken"}},
+                {
+                    "geometry": {"coordinates": [145.143588, -38.175893]},
+                    "properties": {"label": "8 Robinsons Road, Frankston South, VIC, Australia"},
+                },
+            ]
+        },
+    )
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ADDRESS: "8 Robinsons Road, Frankston South"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "8 Robinsons Road, Frankston South, VIC, Australia"
+
+
+async def test_unexpected_geocoder_payload_is_cannot_connect(hass: HomeAssistant, aioclient_mock):
+    aioclient_mock.get(VICMAP_GEOCODER_URL, json=["not", "a", "dict"])
+    aioclient_mock.get(GEOCODE_EARTH_URL, json=["not", "a", "dict"])
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ADDRESS: "8 Robinsons Road"}
+    )
+    assert result["errors"] == {"base": "cannot_connect"}
+
+
+async def test_same_property_from_other_geocoder_aborts(hass: HomeAssistant, aioclient_mock, zones):
+    """geocode.earth places the address ~10 m from where Vicmap did."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=f"{EXAMPLE_ADDRESS['latitude']:.5f},{EXAMPLE_ADDRESS['longitude']:.5f}",
+        data={
+            CONF_ADDRESS: EXAMPLE_ADDRESS["address"],
+            CONF_LATITUDE: EXAMPLE_ADDRESS["latitude"],
+            CONF_LONGITUDE: EXAMPLE_ADDRESS["longitude"],
+        },
+    ).add_to_hass(hass)
+    aioclient_mock.get(ZONES_URL, json=zones)
+    aioclient_mock.get(VICMAP_GEOCODER_URL, status=500)
+    aioclient_mock.get(
+        GEOCODE_EARTH_URL,
+        json={
+            "features": [
+                {
+                    "geometry": {"coordinates": [145.14368, -38.17595]},
+                    "properties": {"label": "8 Robinsons Road, Frankston South, VIC, Australia"},
+                }
+            ]
+        },
+    )
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ADDRESS: "8 Robinsons Road, Frankston South"}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_vicmap_no_match_and_fallback_down_is_not_found(
+    hass: HomeAssistant, aioclient_mock, zones
+):
+    """A geocode.earth outage mustn't hide Vicmap's 'no such address'."""
+    aioclient_mock.get(ZONES_URL, json=zones)
+    aioclient_mock.get(VICMAP_GEOCODER_URL, json={"candidates": []})
+    aioclient_mock.get(GEOCODE_EARTH_URL, status=503)
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ADDRESS: "99 Nowhere Street"}
+    )
+    assert result["errors"] == {CONF_ADDRESS: "address_not_found"}
+
+
+async def test_both_geocoders_down_is_cannot_connect(hass: HomeAssistant, aioclient_mock):
+    aioclient_mock.get(VICMAP_GEOCODER_URL, status=503)
+    aioclient_mock.get(GEOCODE_EARTH_URL, status=503)
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ADDRESS: "8 Robinsons Road"}
+    )
+    assert result["errors"] == {"base": "cannot_connect"}

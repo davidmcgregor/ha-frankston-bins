@@ -114,16 +114,17 @@ class Zone:
                 # Not every property gets every service (e.g. no glass bin).
                 continue
             try:
+                interval = float(weeks)
                 schedule = BinSchedule(
                     bin=bin_type,
                     start=date.fromisoformat(str(start)[:10]),
-                    interval_weeks=int(float(weeks)),
+                    interval_weeks=int(interval),
                 )
-            except ValueError as err:
+            except (OverflowError, TypeError, ValueError) as err:
                 raise ZoneDataError(
                     f"Invalid {bin_type.name} schedule: {start!r} every {weeks!r} weeks"
                 ) from err
-            if schedule.interval_weeks < 1:
+            if interval != schedule.interval_weeks or schedule.interval_weeks < 1:
                 raise ZoneDataError(f"Invalid {bin_type.name} interval: {weeks!r}")
             schedules[bin_type.key] = schedule
         if not schedules:
@@ -167,10 +168,11 @@ def reference_date(now: datetime, rollover: time) -> date:
 
     On collection day the trucks have usually been by mid-morning, so after
     the rollover time we stop showing today's collection and move on to the
-    next one.
+    next one. A rollover of midnight means never roll over early: today's
+    collection is shown until the day ends.
     """
     today = now.date()
-    if now.time() >= rollover:
+    if rollover != time(0) and now.time() >= rollover:
         return today + timedelta(days=1)
     return today
 

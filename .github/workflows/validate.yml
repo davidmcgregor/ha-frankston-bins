@@ -25,22 +25,24 @@ jobs:
             phcc: "0.13.316"
     name: tests (HA ${{ matrix.ha }})
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Install Home Assistant ${{ matrix.ha }}
         run: |
-          pip install "pytest-homeassistant-custom-component==${{ matrix.phcc }}" ruff ${{ matrix.extra }}
+          pip install "pytest-homeassistant-custom-component==${{ matrix.phcc }}" ruff ${EXTRA:+"$EXTRA"}
           FRONTEND=$(python -c "import json, pathlib, homeassistant.components.frontend as f; print(next(r for r in json.loads((pathlib.Path(f.__file__).parent / 'manifest.json').read_text())['requirements'] if r.startswith('home-assistant-frontend')))")
-          pip install "$FRONTEND" ${{ matrix.extra }}
+          pip install "$FRONTEND" ${EXTRA:+"$EXTRA"}
+        env:
+          EXTRA: ${{ matrix.extra }}
       - run: ruff check . && ruff format --check .
       - run: pytest
 
   hassfest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
@@ -49,4 +51,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          ignore: brands
+          # Description and topics are repository settings, only needed for
+          # the HACS default store; custom repositories work without them.
+          ignore: brands description topics

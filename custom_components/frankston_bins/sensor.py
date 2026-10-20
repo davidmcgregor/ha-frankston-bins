@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -16,6 +16,7 @@ from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import UPCOMING_DAYS
 from .coordinator import BinsData, FrankstonBinsConfigEntry, FrankstonBinsCoordinator
 from .entity import (
     FrankstonBinsEntity,
@@ -49,7 +50,7 @@ def _next_collection_attributes(data: BinsData) -> dict[str, Any]:
         "area": data.zone.area,
         "collection_day": data.zone.collection_weekday,
         "bin_details": bin_details(data),
-        "upcoming": [{"date": c.date.isoformat(), "bins": c.bin_keys} for c in data.upcoming[:8]],
+        "upcoming": [{"date": c.date.isoformat(), "bins": c.bin_keys} for c in data.upcoming[:9]],
     }
 
 
@@ -165,8 +166,8 @@ class BinDateSensor(FrankstonBinsEntity, SensorEntity):
         return super().available and self.bin_type.key in self.bins_data.zone.schedules
 
     @property
-    def native_value(self) -> date:
-        return self._schedule.next_date(self.bins_data.reference_date)
+    def native_value(self) -> date | None:
+        return self.bins_data.next_date_for(self.bin_type.key)
 
     @property
     def entity_picture(self) -> str:
@@ -190,6 +191,8 @@ class BinDateSensor(FrankstonBinsEntity, SensorEntity):
             "colour": self.bin_type.colour,
             "upcoming": [
                 day.isoformat()
-                for day in schedule.dates_between(data.reference_date, data.upcoming[-1].date)
+                for day in schedule.dates_between(
+                    data.reference_date, data.reference_date + timedelta(days=UPCOMING_DAYS)
+                )
             ],
         }
