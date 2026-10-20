@@ -117,6 +117,21 @@ Bins going out are shown in their lid colour with an **Out** badge. The rest
 are greyed out and show their next date. The header changes to "put them out
 tonight" on bin night.
 
+#### Card not in the card picker?
+
+Home Assistant adds the card's script to a page only when the page first
+loads. If your browser tab or the Companion app was opened before the
+integration finished setting up (for example, straight after installing it
+and restarting, or while a Raspberry Pi is still starting up), the card isn't
+loaded. Reloading the page fixes it:
+
+- **Browser:** refresh the page (Ctrl+Shift+R / Cmd+Shift+R to bypass the cache).
+- **Companion app:** Settings → Companion app → Debugging → **Reset frontend
+  cache**, or close and reopen the app.
+
+The integration must also be set up (Settings → Devices & services), since the
+card is only served while it's loaded.
+
 ### Built-in cards only
 
 The `*_going_out` binary sensors have coloured or greyed bin pictures, so a
