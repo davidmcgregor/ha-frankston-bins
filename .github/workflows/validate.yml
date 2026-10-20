@@ -1,0 +1,52 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest supported release
+          - ha: "2025.2.0"
+            phcc: "0.13.210"
+          # Last release built for 32-bit ARM (armv7/armhf), e.g. a Raspberry Pi
+          # on a 32-bit OS. Its aiodns needs pycares < 5.
+          - ha: "2025.11.3"
+            phcc: "0.13.297"
+            extra: "pycares<5"
+          - ha: "2026.2.3"
+            phcc: "0.13.316"
+    name: tests (HA ${{ matrix.ha }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Home Assistant ${{ matrix.ha }}
+        run: |
+          pip install "pytest-homeassistant-custom-component==${{ matrix.phcc }}" ruff ${{ matrix.extra }}
+          FRONTEND=$(python -c "import json, pathlib, homeassistant.components.frontend as f; print(next(r for r in json.loads((pathlib.Path(f.__file__).parent / 'manifest.json').read_text())['requirements'] if r.startswith('home-assistant-frontend')))")
+          pip install "$FRONTEND" ${{ matrix.extra }}
+      - run: ruff check . && ruff format --check .
+      - run: pytest
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands

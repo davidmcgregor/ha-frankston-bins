@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Find your bin collection zone",
+        "description": "Enter your street address in the City of Frankston, e.g. `8 Robinsons Road, Frankston South`. Leave it blank to use your Home Assistant home location.\n\nCollection zones come from the council's bin day finder at {lookup_url}.",
+        "data": {
+          "address": "Address"
+        }
+      },
+      "pick": {
+        "title": "Choose your address",
+        "description": "More than one address matched. Pick yours:",
+        "data": {
+          "match": "Address"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Couldn't reach the address or collection zone service. Try again shortly.",
+      "address_not_found": "No address matched. Try including the street type and suburb, e.g. `8 Robinsons Road, Frankston South`.",
+      "outside_frankston": "That address isn't inside a Frankston City Council collection zone."
+    },
+    "abort": {
+      "already_configured": "This address is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Collection day rollover",
+        "description": "On collection day, after this time the integration stops showing today's collection and moves on to the next one.",
+        "data": {
+          "rollover_time": "Move on to the next collection at"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "bin_night": { "name": "Bin night" },
+      "general_waste_going_out": { "name": "General waste going out" },
+      "recycling_going_out": { "name": "Recycling going out" },
+      "fogo_going_out": { "name": "FOGO going out" },
+      "glass_going_out": { "name": "Glass going out" }
+    },
+    "calendar": {
+      "collections": { "name": "Collections" }
+    },
+    "sensor": {
+      "next_collection": { "name": "Next collection" },
+      "bins_to_put_out": { "name": "Bins to put out" },
+      "summary": { "name": "Summary" },
+      "days_until_collection": { "name": "Days until collection" },
+      "collection_zone": { "name": "Collection zone" },
+      "general_waste": { "name": "General waste" },
+      "recycling": { "name": "Recycling" },
+      "fogo": { "name": "FOGO" },
+      "glass": { "name": "Glass" }
+    }
+  }
+}
