@@ -81,18 +81,22 @@ class FrankstonBinsApi:
             VICMAP_GEOCODER_URL,
             {"SingleLine": query, "f": "json", "outSR": "4326", "maxLocations": "10"},
         )
+        if not isinstance(data, dict):
+            raise FrankstonBinsError("Unexpected response from the Vicmap geocoder")
         matches = []
         for candidate in data.get("candidates") or []:
-            location = candidate.get("location") or {}
-            if candidate.get("score", 0) < MIN_VICMAP_SCORE or "x" not in location:
-                continue
-            matches.append(
-                AddressMatch(
-                    address=_title_case(candidate["address"]),
-                    latitude=float(location["y"]),
-                    longitude=float(location["x"]),
+            try:
+                if float(candidate.get("score") or 0) < MIN_VICMAP_SCORE:
+                    continue
+                matches.append(
+                    AddressMatch(
+                        address=_title_case(candidate["address"]),
+                        latitude=float(candidate["location"]["y"]),
+                        longitude=float(candidate["location"]["x"]),
+                    )
                 )
-            )
+            except (AttributeError, KeyError, TypeError, ValueError):
+                _LOGGER.debug("Skipping malformed Vicmap candidate: %s", candidate)
         return matches
 
     async def _search_geocode_earth(self, query: str) -> list[AddressMatch]:
@@ -106,17 +110,22 @@ class FrankstonBinsApi:
                 "size": "10",
             },
         )
+        if not isinstance(data, dict):
+            raise FrankstonBinsError("Unexpected response from geocode.earth")
         matches = []
         for feature in data.get("features") or []:
-            longitude, latitude = feature["geometry"]["coordinates"][:2]
-            properties = feature.get("properties") or {}
-            matches.append(
-                AddressMatch(
-                    address=properties.get("label") or properties.get("name") or query,
-                    latitude=float(latitude),
-                    longitude=float(longitude),
+            try:
+                longitude, latitude = feature["geometry"]["coordinates"][:2]
+                properties = feature.get("properties") or {}
+                matches.append(
+                    AddressMatch(
+                        address=properties.get("label") or properties.get("name") or query,
+                        latitude=float(latitude),
+                        longitude=float(longitude),
+                    )
                 )
-            )
+            except (AttributeError, KeyError, TypeError, ValueError):
+                _LOGGER.debug("Skipping malformed geocode.earth feature: %s", feature)
         return matches
 
 

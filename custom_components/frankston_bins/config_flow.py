@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from homeassistant.config_entries import (
@@ -32,6 +33,7 @@ from .schedule import Zone, ZoneDataError, find_zone_properties
 _LOGGER = logging.getLogger(__name__)
 
 CONF_MATCH = "match"
+DUPLICATE_DISTANCE_M = 30
 
 
 class FrankstonBinsConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -110,6 +112,19 @@ class FrankstonBinsConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_create(self, match: AddressMatch, zone: dict[str, Any]) -> ConfigFlowResult:
         await self.async_set_unique_id(f"{match.latitude:.5f},{match.longitude:.5f}")
         self._abort_if_unique_id_configured()
+        # The two geocoders can place the same address a few metres apart.
+        for entry in self._async_current_entries(include_ignore=False):
+            if (
+                CONF_LATITUDE in entry.data
+                and _distance_m(
+                    match.latitude,
+                    match.longitude,
+                    entry.data[CONF_LATITUDE],
+                    entry.data[CONF_LONGITUDE],
+                )
+                <= DUPLICATE_DISTANCE_M
+            ):
+                return self.async_abort(reason="already_configured")
         return self.async_create_entry(
             title=match.address,
             data={
@@ -119,6 +134,13 @@ class FrankstonBinsConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_ZONE: zone,
             },
         )
+
+
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Approximate distance in metres; plenty accurate over a few hundred metres."""
+    x = math.radians(lon2 - lon1) * math.cos(math.radians((lat1 + lat2) / 2))
+    y = math.radians(lat2 - lat1)
+    return math.hypot(x, y) * 6_371_000
 
 
 def _unique_matches(

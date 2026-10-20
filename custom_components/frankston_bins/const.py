@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "frankston_bins"
-VERSION: Final = "1.0.0"
 
 CONF_ADDRESS: Final = "address"
 CONF_ROLLOVER: Final = "rollover_time"

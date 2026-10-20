@@ -49,6 +49,17 @@ class BinsData:
         return (day - dt_util.now().date()).days
 
 
+def zone_structure(properties: dict[str, Any] | None) -> tuple | None:
+    """What the entities and device are built from; a change needs a reload."""
+    if properties is None:
+        return None
+    try:
+        zone = Zone.from_properties(properties)
+    except ZoneDataError:
+        return None
+    return (zone.area, zone.collection_weekday, tuple(zone.schedules))
+
+
 class FrankstonBinsCoordinator(DataUpdateCoordinator[BinsData]):
     """Keeps the zone data fresh and recalculates collection dates."""
 
@@ -81,6 +92,8 @@ class FrankstonBinsCoordinator(DataUpdateCoordinator[BinsData]):
         except FrankstonBinsError as err:
             if self._zone_properties is None:
                 raise UpdateFailed(str(err)) from err
+            # Don't retry every update; wait for the normal refresh interval.
+            self._zone_fetched = dt_util.utcnow()
             _LOGGER.warning("Using cached collection zone, refresh failed: %s", err)
             return
         self._zone_fetched = dt_util.utcnow()
@@ -88,6 +101,13 @@ class FrankstonBinsCoordinator(DataUpdateCoordinator[BinsData]):
             if self._zone_properties is None:
                 raise UpdateFailed("Address is not inside a Frankston collection zone")
             _LOGGER.warning("Address no longer matches a zone; using cached zone")
+            return
+        try:
+            Zone.from_properties(properties)
+        except ZoneDataError as err:
+            if self._zone_properties is None:
+                raise UpdateFailed(f"Invalid collection zone data: {err}") from err
+            _LOGGER.warning("Ignoring invalid zone update (%s); using cached zone", err)
             return
         if properties != self._zone_properties:
             _LOGGER.info("Collection zone updated: %s", properties)

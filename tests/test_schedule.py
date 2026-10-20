@@ -153,3 +153,14 @@ def test_zone_without_glass_service():
 def test_invalid_zone_data(properties):
     with pytest.raises(ZoneDataError):
         Zone.from_properties(properties)
+
+
+@pytest.mark.parametrize("weeks", [[2], {"weeks": 2}, "1.5", 2.5, "inf", "nan"])
+def test_malformed_or_fractional_interval_rejected(weeks):
+    with pytest.raises(ZoneDataError):
+        Zone.from_properties({"rub_start": "2017-01-02", "rub_weeks": weeks})
+
+
+def test_non_string_start_date_rejected():
+    with pytest.raises(ZoneDataError):
+        Zone.from_properties({"rub_start": ["2017-01-02"], "rub_weeks": 1})
