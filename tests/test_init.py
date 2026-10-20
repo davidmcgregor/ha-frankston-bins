@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
+from pathlib import Path
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
@@ -20,6 +22,9 @@ from custom_components.frankston_bins.const import CONF_ADDRESS, DOMAIN, ZONES_U
 from .conftest import EXAMPLE_ADDRESS
 
 PREFIX = "frankston_bins"
+MANIFEST_VERSION = json.loads(
+    (Path(__file__).parent.parent / "custom_components/frankston_bins/manifest.json").read_text()
+)["version"]
 
 
 @pytest.fixture
@@ -287,7 +292,7 @@ async def test_card_url_uses_manifest_version(hass: HomeAssistant, mock_services
 
     await setup_entry()
     assert any(
-        url.endswith("/frankston-bins-card.js?v=1.0.0")
+        url.endswith(f"/frankston-bins-card.js?v={MANIFEST_VERSION}")
         for url in hass.data[DATA_EXTRA_MODULE_URL].urls
     )
 

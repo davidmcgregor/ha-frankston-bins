@@ -225,14 +225,35 @@ class FrankstonBinsCard extends HTMLElement {
   }
 }
 
-if (!customElements.get("frankston-bins-card")) {
-  customElements.define("frankston-bins-card", FrankstonBinsCard);
+// Home Assistant loads this script before its own frontend. On some browsers
+// (older Safari/iOS, which get the compatibility build, or Safari's custom
+// element registry polyfill) the frontend then swaps in a different
+// window.customElements, and anything defined earlier is invisible to it: the
+// card picker spins forever. So wait until the frontend has defined
+// <home-assistant> on the registry it actually uses, and register there.
+const register = () => {
+  const registry = window.customElements;
+  if (!registry.get("frankston-bins-card")) {
+    registry.define("frankston-bins-card", FrankstonBinsCard);
+  }
   window.customCards = window.customCards || [];
-  window.customCards.push({
-    type: "frankston-bins-card",
-    name: "Frankston Bins",
-    description: "Which bins go out at the next Frankston City Council collection.",
-    preview: true,
-    documentationURL: "https://github.com/davidmcgregor/ha-frankston-bins",
-  });
-}
+  if (!window.customCards.some((card) => card.type === "frankston-bins-card")) {
+    window.customCards.push({
+      type: "frankston-bins-card",
+      name: "Frankston Bins",
+      description: "Which bins go out at the next Frankston City Council collection.",
+      preview: true,
+      documentationURL: "https://github.com/davidmcgregor/ha-frankston-bins",
+    });
+  }
+};
+
+const waitForFrontend = (deadline) => {
+  if (window.customElements.get("home-assistant") || Date.now() > deadline) {
+    register();
+  } else {
+    setTimeout(() => waitForFrontend(deadline), 50);
+  }
+};
+
+waitForFrontend(Date.now() + 30000);
