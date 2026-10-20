@@ -49,9 +49,9 @@ def bin_details(data: BinsData) -> list[dict[str, Any]]:
     details = []
     for bin_type in BIN_TYPES:
         schedule = data.zone.schedules.get(bin_type.key)
-        if schedule is None:
+        next_date = data.next_date_for(bin_type.key)
+        if schedule is None or next_date is None:
             continue
-        next_date = schedule.next_date(data.reference_date)
         details.append(
             {
                 "key": bin_type.key,

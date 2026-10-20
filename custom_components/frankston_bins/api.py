@@ -67,14 +67,23 @@ class FrankstonBinsApi:
 
     async def async_search_address(self, query: str) -> list[AddressMatch]:
         """Geocode an address, preferring the official Vicmap geocoder."""
+        vicmap_error: FrankstonBinsError | None = None
         try:
             matches = await self._search_vicmap(query)
         except FrankstonBinsError as err:
             _LOGGER.debug("Vicmap geocoder failed, trying geocode.earth: %s", err)
+            vicmap_error = err
             matches = []
-        if not matches:
-            matches = await self._search_geocode_earth(query)
-        return matches
+        if matches:
+            return matches
+        try:
+            return await self._search_geocode_earth(query)
+        except FrankstonBinsError as err:
+            if vicmap_error is not None:
+                raise
+            # Vicmap answered and found nothing; that's the real result.
+            _LOGGER.debug("geocode.earth fallback failed: %s", err)
+            return []
 
     async def _search_vicmap(self, query: str) -> list[AddressMatch]:
         data = await self._get_json(

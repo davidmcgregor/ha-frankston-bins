@@ -49,7 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FrankstonBinsConfigEntry
 
     # Dates only change at midnight and at the rollover time on collection day.
     rollover = coordinator.rollover
-    entry.async_on_unload(async_track_time_change(hass, _recalculate, hour=0, minute=0, second=1))
+    entry.async_on_unload(async_track_time_change(hass, _recalculate, hour=0, minute=0, second=0))
     entry.async_on_unload(
         async_track_time_change(
             hass,

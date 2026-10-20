@@ -267,3 +267,27 @@ async def test_same_property_from_other_geocoder_aborts(hass: HomeAssistant, aio
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_vicmap_no_match_and_fallback_down_is_not_found(
+    hass: HomeAssistant, aioclient_mock, zones
+):
+    """A geocode.earth outage mustn't hide Vicmap's 'no such address'."""
+    aioclient_mock.get(ZONES_URL, json=zones)
+    aioclient_mock.get(VICMAP_GEOCODER_URL, json={"candidates": []})
+    aioclient_mock.get(GEOCODE_EARTH_URL, status=503)
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ADDRESS: "99 Nowhere Street"}
+    )
+    assert result["errors"] == {CONF_ADDRESS: "address_not_found"}
+
+
+async def test_both_geocoders_down_is_cannot_connect(hass: HomeAssistant, aioclient_mock):
+    aioclient_mock.get(VICMAP_GEOCODER_URL, status=503)
+    aioclient_mock.get(GEOCODE_EARTH_URL, status=503)
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ADDRESS: "8 Robinsons Road"}
+    )
+    assert result["errors"] == {"base": "cannot_connect"}

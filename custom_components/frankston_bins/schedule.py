@@ -168,10 +168,11 @@ def reference_date(now: datetime, rollover: time) -> date:
 
     On collection day the trucks have usually been by mid-morning, so after
     the rollover time we stop showing today's collection and move on to the
-    next one.
+    next one. A rollover of midnight means never roll over early: today's
+    collection is shown until the day ends.
     """
     today = now.date()
-    if now.time() >= rollover:
+    if rollover != time(0) and now.time() >= rollover:
         return today + timedelta(days=1)
     return today
 

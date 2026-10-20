@@ -290,3 +290,38 @@ async def test_card_url_uses_manifest_version(hass: HomeAssistant, mock_services
         url.endswith("/frankston-bins-card.js?v=1.0.0")
         for url in hass.data[DATA_EXTRA_MODULE_URL].urls
     )
+
+
+async def test_midnight_rollover_shows_today_all_day(
+    hass: HomeAssistant, mock_services, example_zone, freezer: FrozenDateTimeFactory
+):
+    await hass.config.async_set_time_zone("Australia/Melbourne")
+    freezer.move_to(dt_util.parse_datetime("2026-10-21T00:00:00+11:00"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_ADDRESS: EXAMPLE_ADDRESS["address"],
+            CONF_LATITUDE: EXAMPLE_ADDRESS["latitude"],
+            CONF_LONGITUDE: EXAMPLE_ADDRESS["longitude"],
+            "zone": example_zone,
+        },
+        options={"rollover_time": "00:00:00"},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for when in (
+        "2026-10-21T00:00:00+11:00",
+        "2026-10-21T15:00:00+11:00",
+        "2026-10-21T23:59:00+11:00",
+    ):
+        freezer.move_to(dt_util.parse_datetime(when))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+        assert hass.states.get(f"sensor.{PREFIX}_next_collection").state == "2026-10-21", when
+        assert hass.states.get(f"sensor.{PREFIX}_days_until_collection").state == "0", when
+
+    freezer.move_to(dt_util.parse_datetime("2026-10-22T00:00:00+11:00"))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(f"sensor.{PREFIX}_next_collection").state == "2026-10-28"

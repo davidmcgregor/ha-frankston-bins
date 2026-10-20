@@ -166,8 +166,8 @@ class BinDateSensor(FrankstonBinsEntity, SensorEntity):
         return super().available and self.bin_type.key in self.bins_data.zone.schedules
 
     @property
-    def native_value(self) -> date:
-        return self._schedule.next_date(self.bins_data.reference_date)
+    def native_value(self) -> date | None:
+        return self.bins_data.next_date_for(self.bin_type.key)
 
     @property
     def entity_picture(self) -> str:

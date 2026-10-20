@@ -77,7 +77,9 @@ address matches, you choose from a list.
 
 **Options:** on collection day the integration keeps showing today's
 collection until a rollover time (12:00 by default), then moves on to the next
-one. You can change this under the integration's **Configure** button.
+one. You can change this under the integration's **Configure** button; choose
+00:00 to keep showing today's collection until midnight. The calendar always
+keeps today's event until midnight.
 
 ## Entities
 

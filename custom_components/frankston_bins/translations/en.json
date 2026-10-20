@@ -29,7 +29,7 @@
     "step": {
       "init": {
         "title": "Collection day rollover",
-        "description": "On collection day, after this time the integration stops showing today's collection and moves on to the next one.",
+        "description": "On collection day, after this time the integration stops showing today's collection and moves on to the next one. Choose 00:00 to keep showing today's collection until midnight.",
         "data": {
           "rollover_time": "Move on to the next collection at"
         }
